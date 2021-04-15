@@ -2,6 +2,8 @@
 import os
 import subprocess
 import time
+import xlwings as xw
+import matplotlib.pyplot as plt
 
 def decode_cpustr(cpustr=[]):
     # ['cpu', '178689', '80601', '266586', '4331318', '6918', '39547', '29670', '0', '0', '0']
@@ -53,6 +55,37 @@ def getCpu(sample_time = 1):
     cpu_average_usage = 1 - (cpu_next["idle"] - cpu_first["idle"])/(cpu_next["total"] - cpu_first["total"])
 
     return cpu_average_usage, time.time()
+
+def get_result():
+    file_path = r'D:/test.xlsx'
+    xw.Book(file_path)  # 固定打开表格
+    wb = xw.books.active  # 在活动app
+    sht = wb.sheets['sheet1']
+
+    data_time = 60
+    sample_time = 3
+
+    rows = data_time / sample_time
+    row = 1
+    #设置标题
+    sht.range(f'a{row}').value = [‘时间’, ‘CPU平均使用率’]
+    for row in range(rows):
+        cpu_average_usage, t = getCpu()
+        sht.range(f'a{row+1}').value = [t, cpu_average_usage]
+
+    # sheet = xw.Book('1.xlsx').sheets[0]
+    # chart = sheet.charts.add()
+    # # 数据源：sheet.range('A1:C7')，或者sheet.range('A1').expand()
+    # chart.set_source_data(sheet.range('A1').expand())
+    # chart.chart_type = 'line'  # 线形
+    # title = '商品销量'  # 标题名称
+    # chart.api[1].SetElement(2)  # 显示标题
+    # chart.api[1].ChartTitle.Text = title  # 设置标题名称
+    # chart.api[1].SetElement(302)  # 在轴下方显示主要类别轴标题。
+    # chart.api[1].Axes(1).AxisTitle.Text = "日期"  # 横轴标题名称
+    # chart.api[1].SetElement(311)  # 在轴旁边显示主要类别的轴标题。
+    # chart.api[1].Axes(2).AxisTitle.Text = "销量"  # 纵轴标题名称
+
 
 if __name__ == '__main__':
     cpu_average_usage, t = getCpu()
