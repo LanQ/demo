@@ -31,7 +31,7 @@ def decode_cpustr(cpustr=[]):
     }
     return cpuinfo
 
-def getCpu(sample_time = 1):
+def get_cpu(sample_time = 1):
 
     sample_time = sample_time
     cmd = 'adb shell cat /proc/stat'
@@ -54,9 +54,52 @@ def getCpu(sample_time = 1):
     # print(cpu_first, cpu_next)
     cpu_average_usage = 1 - (cpu_next["idle"] - cpu_first["idle"])/(cpu_next["total"] - cpu_first["total"])
 
-    return cpu_average_usage, time.time()
+    t = time.time()
+    print(f'{t}; {cpu_average_usage} - cpu')
+    return cpu_average_usage, t
 
-def get_result():
+def write_cpu(duration = 60, sample_time = 5):
+    duration = 60
+    sample_time = 5
+    file = 'rs_result_cpu.txt'
+    with open(file, mode='w') as f:
+        start = time.time()
+        f.write(f'time_duration_{duration}; cpu_average_usage_sample_time_{sample_time}\n')
+        while time.time() - start < duration:
+            cpu_average_usage, t = get_cpu(sample_time)
+            f.write(f'{t}; {cpu_average_usage}\n')
+
+def get_memory():
+    #used = total - free - buffers -cached
+    cmd = 'adb shell cat /proc/meminfo'
+    p = subprocess.Popen(cmd, stdout=subprocess.PIPE)
+    list = p.stdout.read().decode('utf-8').split('\r\n')
+
+    mem_dict = {}
+    for l in list:
+        if l != '':
+            name = l.split(':')[0]
+            value = int(l.split(':')[1].strip().split(' ')[0]) #kB
+            mem_dict[name] = value
+    mem_used = mem_dict['MemTotal'] - mem_dict['MemFree'] - mem_dict['Buffers'] - mem_dict['Cached']
+
+    t = time.time()
+    print(f'{t}; {mem_used} - mem')
+    return mem_used, t
+
+def write_mem(duration = 60, sample_time = 5):
+    duration = 60
+    sample_time = 5
+    file = 'rs_result_mem.txt'
+    with open(file, mode='w') as f:
+        start = time.time()
+        f.write(f'time_duration_{duration}; mem_usage_sample_time_{sample_time}\n')
+        while time.time() - start < duration:
+            mem_usage, t = get_memory()
+            time.sleep(sample_time)
+            f.write(f'{t}; {mem_usage}\n')
+
+def get_result(): # not yet
     file_path = r'D:/test.xlsx'
     xw.Book(file_path)  # 固定打开表格
     wb = xw.books.active  # 在活动app
@@ -68,9 +111,9 @@ def get_result():
     rows = data_time / sample_time
     row = 1
     #设置标题
-    sht.range(f'a{row}').value = [‘时间’, ‘CPU平均使用率’]
+    sht.range(f'a{row}').value = ['时间', 'CPU平均使用率']
     for row in range(rows):
-        cpu_average_usage, t = getCpu()
+        cpu_average_usage, t = get_cpu()
         sht.range(f'a{row+1}').value = [t, cpu_average_usage]
 
     # sheet = xw.Book('1.xlsx').sheets[0]
@@ -88,5 +131,7 @@ def get_result():
 
 
 if __name__ == '__main__':
-    cpu_average_usage, t = getCpu()
-    print(f'{t}: {cpu_average_usage}')
+    # cpu_average_usage, t = get_cpu()
+    # print(f'{t}: {cpu_average_usage}')
+    # write_cpu()
+    write_mem()
