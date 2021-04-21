@@ -2,6 +2,8 @@
 import os
 import subprocess
 import time
+from threading import Thread
+
 import xlwings as xw
 import matplotlib.pyplot as plt
 
@@ -134,4 +136,18 @@ if __name__ == '__main__':
     # cpu_average_usage, t = get_cpu()
     # print(f'{t}: {cpu_average_usage}')
     # write_cpu()
-    write_mem()
+    # write_mem()
+    t1 = Thread(target=write_cpu, args=(60, 5,))
+    t2 = Thread(target=write_mem, args=(60, 5,))
+    t1.start()
+    t2.start()
+
+    t1.join()
+    t2.join()
+
+    # threads = []
+    # threads.append(t1)
+    # threads.append(t2)
+    #
+    # for t in threads:
+    #     t.join()
