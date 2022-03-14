@@ -2,6 +2,7 @@
 import re
 import time
 from threading import Thread
+from typing import Callable, Any, Iterable, Mapping
 
 from adbutils import adb, errors
 
@@ -59,18 +60,23 @@ class CPU(Thread):
                 #'  1457 system       18  -2  16G 315M 242M S  0.0   8.6   7:15.33 system_server'
                 line = line.strip()
                 line_split = line.split()
+
+                # 处理个别行中的异常字符ANSI code https://tforgione.fr/posts/ansi-escape-codes/
+                # ['\x1b[1m', '23808', 'shell', '20', '0', '10G', '3.0M', '1.8M', 'R', '45.7', '0.0', '0:00.11', 'top', '-n', '1', '-m', '500', '-s', '6']
+                # ['\x1b[m']
+                if '\x1b[' in line_split[0]:
+                    line_split = line_split[1:]
+
                 print(line_split)
-#                 '''
-#                 TODO: 处理异常字符
-#                 ['\x1b[1m', '23808', 'shell', '20', '0', '10G', '3.0M', '1.8M', 'R', '45.7', '0.0', '0:00.11', 'top', '-n', '1', '-m', '500', '-s', '6']
-# ['\x1b[m']
-#                 '''
-#                 row_cpu = line_split[8]
-#                 # 适配args含有空格情况
-#                 # '1057 root         20   0  10G 1.7M 1.5M S  5.7   0.0   0:28.55 msm_irqbalance -f /vendor/etc/msm_irqbalance.conf',
-#                 row_args = ''.join(line_split[11:])
-#                 self.cpu_per_process[row_args] = row_cpu
-            return
+
+                if line_split:
+                    row_cpu = line_split[8]
+                    # 适配args含有空格情况
+                    # '1057 root         20   0  10G 1.7M 1.5M S  5.7   0.0   0:28.55 msm_irqbalance -f /vendor/etc/msm_irqbalance.conf',
+                    row_args = ''.join(line_split[11:])
+                    pid = line_split[0]
+                    self.cpu_per_process[row_args] = row_cpu, pid
+
         else:
             self.cpu_per_process = {}
 
@@ -90,16 +96,16 @@ class CPU(Thread):
         self.running = False
 
 
-if __name__ == '__main__':
+def show_cpu():
     record_time = 60
     step_time = 1
     cpu = CPU(record_time=record_time, step_time=step_time)
     cpu.start()
 
-    # import matplotlib.pyplot as plt
-    #
-    # x = []
-    # y = []
+    import matplotlib.pyplot as plt
+
+    x = []
+    y = []
 
     deadtime = time.time() + record_time
     while time.time() < deadtime:
@@ -110,10 +116,77 @@ if __name__ == '__main__':
                 print(k, v)
         time.sleep(step_time)
 
-        # x.append(time.time())
-        # y.append(cpu.total_cpu_usage)
-        # plt.clf()
-        #
-        # plt.plot(x, y)
-        # plt.pause(0.1)
-        # plt.ioff()
+        x.append(time.time())
+        y.append(cpu.total_cpu_usage)
+        plt.clf()
+
+        plt.plot(x, y)
+        plt.pause(0.1)
+        plt.ioff()
+
+
+class Memory(Thread):
+
+    def __init__(self, record_time: float = 1, step_time: float = 5) -> None:
+        Thread.__init__(self)
+        self.setDaemon(True)
+        self.record_time = record_time
+        self.step_time = step_time
+        self.step_time = step_time
+        self.is_adb_device_exist = False
+        self.d = None
+        self.memory = ''
+        self.running = True
+        self.memory_used = ''
+        self.memory_per_process = {}
+
+    def _get_memory(self):
+        try:
+            if not self.is_adb_device_exist:
+                self.d = adb.device()
+                self.is_adb_device_exist = True
+                print(id(self.d))
+
+            self.memory = self.d.shell('dumpsys meminfo')
+        except Exception as e:
+            # print(f'未找到设备 或 连接不上设备 {e}')
+            self.is_adb_device_exist = False
+            self.memory = ''
+
+    def decode_total_used_memory_from_dumpsys(self):
+        if self.memory:
+            memory_summary = self.memory.splitlines()[-6:]
+            memory_free = int(memory_summary[1].split(': ')[1].split('K (')[0].replace(',', ''))
+            memory_total = int(memory_summary[0].split(': ')[1].split('K (')[0].replace(',', ''))
+            self.memory_used = memory_total - memory_free
+        else:
+            self.memory_used = ''
+
+    def decode_each_process_memory_pss_usage_from_dumpsys(self):
+        if self.memory:
+            memory_pss = self.memory.split('Total PSS by process:')[1].split('Total PSS by OOM adjustment:')[0].strip()
+            memory_pss_lines = memory_pss.splitlines()
+            for line in memory_pss_lines:
+                #  '        693K: android.hidl.allocator@1.0-service (pid 977)'
+                process = line.split(': ')[1].split(' (')[0]
+                row_memory = line.split('K: ')[0].strip().replace(',', '')
+                pid = line.split('(pid ')[1][:-1]
+                self.memory_per_process[process] = row_memory, pid
+        else:
+            self.memory_per_process = {}
+
+    def run(self) -> None:
+        deadtime = time.time() + self.record_time
+        while self.running and (time.time() < deadtime):
+            self._get_memory()
+            self.decode_total_used_memory_from_dumpsys()
+            self.decode_each_process_memory_pss_usage_from_dumpsys()
+            print(self.memory_used)
+            print(self.memory_per_process)
+            time.sleep(self.step_time)
+
+
+if __name__ == '__main__':
+    memory = Memory(record_time=60)
+    memory.start()
+    time.sleep(60)
