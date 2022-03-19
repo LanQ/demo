@@ -6,6 +6,13 @@ from typing import Callable, Any, Iterable, Mapping
 
 from adbutils import adb, errors
 
+import datetime
+import plotly
+import dash
+from dash.dependencies import Input, Output
+import dash_core_components as dcc
+import dash_html_components as html
+import time
 
 class CPU(Thread):
     def __init__(self, record_time: float = 1, step_time: float = 5) -> None:
@@ -67,13 +74,11 @@ class CPU(Thread):
                 if '\x1b[' in line_split[0]:
                     line_split = line_split[1:]
 
-                print(line_split)
-
                 if line_split:
                     row_cpu = line_split[8]
                     # 适配args含有空格情况
                     # '1057 root         20   0  10G 1.7M 1.5M S  5.7   0.0   0:28.55 msm_irqbalance -f /vendor/etc/msm_irqbalance.conf',
-                    row_args = ''.join(line_split[11:])
+                    row_args = ''.join(line_split[11:])[0]
                     pid = line_split[0]
                     self.cpu_per_process[row_args] = row_cpu, pid
 
@@ -181,12 +186,76 @@ class Memory(Thread):
             self._get_memory()
             self.decode_total_used_memory_from_dumpsys()
             self.decode_each_process_memory_pss_usage_from_dumpsys()
-            print(self.memory_used)
-            print(self.memory_per_process)
             time.sleep(self.step_time)
 
 
 if __name__ == '__main__':
-    memory = Memory(record_time=60)
+    memory = Memory(record_time=60, step_time=10)
     memory.start()
+
+    cpu = CPU(record_time=60, step_time=10)
+    cpu.start()
+
+
+    app = dash.Dash(__name__)
+    app.layout = html.Div(
+        html.Div([
+            html.H4('Memory and Cpu Infomation'),
+            dcc.Graph(id='live-update-graph'),
+            dcc.Interval(
+                id='interval-component',
+                interval=10*1000, # in milliseconds
+                n_intervals=0
+            )
+        ])
+    )
+
+    memory_data = {
+        'time': [],
+        'memory_used': []
+    }
+
+    cpu_data = {
+        'time': [],
+        'total_cpu_usage': []
+    }
+
+    # Multiple components can update everytime interval gets fired.
+    @app.callback(Output('live-update-graph', 'figure'),
+                  Input('interval-component', 'n_intervals'))
+    def update_graph_live(n):
+
+        memory_data['time'].append(time.time())
+        memory_data['memory_used'].append(memory.memory_used)
+        print(memory_data)
+
+        cpu_data['time'].append(time.time())
+        cpu_data['total_cpu_usage'].append(cpu.total_cpu_usage)
+        print(memory_data)
+
+        # Create the graph with subplots
+        fig = plotly.tools.make_subplots(rows=2, cols=1, vertical_spacing=0.2)
+        fig['layout']['margin'] = {
+            'l': 30, 'r': 10, 'b': 30, 't': 10
+        }
+        fig['layout']['legend'] = {'x': 0, 'y': 1, 'xanchor': 'left'}
+
+        fig.append_trace({
+            'x': memory_data['time'],
+            'y': memory_data['memory_used'],
+            'name': 'Memory',
+            'mode': 'lines+markers',
+            'type': 'scatter'
+        }, 1, 1)
+        fig.append_trace({
+            'x': cpu_data['time'],
+            'y': cpu_data['total_cpu_usage'],
+            'name': 'CPU',
+            'mode': 'lines+markers',
+            'type': 'scatter'
+        }, 2, 1)
+
+        return fig
+
+    app.run_server(debug=True)
     time.sleep(60)
