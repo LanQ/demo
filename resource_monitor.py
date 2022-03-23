@@ -14,6 +14,7 @@ import dash_core_components as dcc
 import dash_html_components as html
 import time
 
+
 class CPU(Thread):
     def __init__(self, record_time: float = 1, step_time: float = 5) -> None:
         Thread.__init__(self)
@@ -64,7 +65,7 @@ class CPU(Thread):
         if self.top:
             data_lines = self.top.splitlines()[5:]
             for line in data_lines:
-                #'  1457 system       18  -2  16G 315M 242M S  0.0   8.6   7:15.33 system_server'
+                # '  1457 system       18  -2  16G 315M 242M S  0.0   8.6   7:15.33 system_server'
                 line = line.strip()
                 line_split = line.split()
 
@@ -95,7 +96,10 @@ class CPU(Thread):
             self.decode_each_process_cpu_usage_from_top()
             # 等待步进时间step_time进行下次采样
             time.sleep(self.step_time)
+        # 采集线程结束 还原数据
         self.running = False
+        self.total_cpu_usage = ''
+        self.cpu_per_process = {}
 
     def stop(self):
         self.running = False
@@ -187,75 +191,81 @@ class Memory(Thread):
             self.decode_total_used_memory_from_dumpsys()
             self.decode_each_process_memory_pss_usage_from_dumpsys()
             time.sleep(self.step_time)
+        # 采集线程结束 还原数据
+        self.running = False
+        self.memory_used = ''
+        self.memory_per_process = {}
+
+    def stop(self):
+        self.running = False
+
 
 
 if __name__ == '__main__':
-    memory = Memory(record_time=60, step_time=10)
+    step_time = 5
+    memory = Memory(record_time=60, step_time=step_time)
     memory.start()
 
-    cpu = CPU(record_time=60, step_time=10)
+    cpu = CPU(record_time=60, step_time=step_time)
     cpu.start()
 
-
-    app = dash.Dash(__name__)
+    app = dash.Dash()
     app.layout = html.Div(
         html.Div([
-            html.H4('Memory and Cpu Infomation'),
-            dcc.Graph(id='live-update-graph'),
+            html.H4('CPU and Memory information'),
+            dcc.Graph(id='memory-live-update-graph'),
+            dcc.Graph(id='cpu-live-update-graph'),
             dcc.Interval(
                 id='interval-component',
-                interval=10*1000, # in milliseconds
+                interval=step_time * 1000,  # in milliseconds
                 n_intervals=0
             )
         ])
     )
 
-    memory_data = {
-        'time': [],
-        'memory_used': []
-    }
-
-    cpu_data = {
-        'time': [],
-        'total_cpu_usage': []
-    }
-
-    # Multiple components can update everytime interval gets fired.
-    @app.callback(Output('live-update-graph', 'figure'),
+    x_axis_memory = []
+    y_axis_memory_value = []
+    x_axis_cpu = []
+    y_axis_cpu_value = []
+    @app.callback(Output('memory-live-update-graph', 'figure'),
                   Input('interval-component', 'n_intervals'))
-    def update_graph_live(n):
-
-        memory_data['time'].append(time.time())
-        memory_data['memory_used'].append(memory.memory_used)
-        print(memory_data)
-
-        cpu_data['time'].append(time.time())
-        cpu_data['total_cpu_usage'].append(cpu.total_cpu_usage)
-        print(memory_data)
-
-        # Create the graph with subplots
-        fig = plotly.tools.make_subplots(rows=2, cols=1, vertical_spacing=0.2)
-        fig['layout']['margin'] = {
-            'l': 30, 'r': 10, 'b': 30, 't': 10
+    def update_memory_graph_live(n):
+        print(f'memory.memory_used: {memory.memory_used}')
+        time_str = time.strftime('%Y-%m-%d_%H-%M-%S', time.localtime())
+        x_axis_memory.append(time_str)
+        y_axis_memory_value.append(memory.memory_used)
+        figure = {
+            'data': [
+                {'x': x_axis_memory, 'y': y_axis_memory_value, 'type': 'line', 'name': 'memory'},
+            ],
+            'layout': {
+                'title': 'Memory数据',
+                'xaxis': {'tickformat': '%d/%H/%M',
+                          'tickmode': 'auto'}
+            }
         }
-        fig['layout']['legend'] = {'x': 0, 'y': 1, 'xanchor': 'left'}
 
-        fig.append_trace({
-            'x': memory_data['time'],
-            'y': memory_data['memory_used'],
-            'name': 'Memory',
-            'mode': 'lines+markers',
-            'type': 'scatter'
-        }, 1, 1)
-        fig.append_trace({
-            'x': cpu_data['time'],
-            'y': cpu_data['total_cpu_usage'],
-            'name': 'CPU',
-            'mode': 'lines+markers',
-            'type': 'scatter'
-        }, 2, 1)
+        return figure
 
-        return fig
+    @app.callback(Output('cpu-live-update-graph', 'figure'),
+                  Input('interval-component', 'n_intervals'))
+    def update_cpu_graph_live(n):
+        print(f'cpu.total_cpu_usage: {cpu.total_cpu_usage} type: {type(cpu.total_cpu_usage)}')
+        time_str = time.strftime('%Y-%m-%d_%H-%M-%S', time.localtime())
+        x_axis_cpu.append(time_str)
+        y_axis_cpu_value.append(cpu.total_cpu_usage)
+        figure = {
+            'data': [
+                {'x': x_axis_cpu, 'y': y_axis_cpu_value, 'type': 'line', 'name': 'cpu'},
+            ],
+            'layout': {
+                'title': 'CPU数据',
+                'xaxis': {'tickformat': '%d/%H/%M',
+                          'tickmode': 'auto'}
+            }
+        }
+
+        return figure
+
 
     app.run_server(debug=True)
-    time.sleep(60)
